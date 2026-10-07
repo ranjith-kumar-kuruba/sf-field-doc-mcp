@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs";
 
-// Initialize the MCP Server
+// Initialize a lightweight MCP Server
 const server = new Server({ name: "sf-field-doc-mcp", version: "1.0.0" }, { capabilities: { tools: {} } });
 
 // Register the tool definitions
@@ -55,13 +55,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     if (name === "generate_proposal") {
       const { filePath, businessPurpose } = args as { filePath: string; businessPurpose: string };
-      if (!fs.existsSync(filePath)) return { isError: true, content: [{ type: "text", text: `File not found at matching path.` }] };
+      if (!fs.existsSync(filePath)) return { isError: true, content: [{ type: "text", text: `File not found.` }] };
 
       const xml = fs.readFileSync(filePath, "utf-8");
-      const label = (xml.match(/<label>([\s\(\S\)]*?)<\/label>/)?.[1] || "this field").trim();
-      const type = (xml.match(/<type>([\s\(\S\)]*?)<\/type>/)?.[1] || "Field").trim();
+      
+      // Clean parsing strategy avoiding syntax token chaining breaks
+      const labelMatch = xml.match(/<label>([\s\(\S\)]*?)<\/label>/);
+      const label = labelMatch && labelMatch[1] ? labelMatch[1].trim() : "this field";
 
-      // Enforce clean platform character limits
+      const typeMatch = xml.match(/<type>([\s\(\S\)]*?)<\/type>/);
+      const type = typeMatch && typeMatch[1] ? typeMatch[1].trim() : "Field";
+
+      // Algorithmic processing matching Salesforce structural bounds
       const proposedDesc = `Type: ${type}. Purpose: ${businessPurpose}`.substring(0, 990);
       const proposedHelp = `Enter the applicable data for ${label} (${type}).`.substring(0, 245);
 
@@ -90,7 +95,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Bootstrapping function
+// Bootstrapping function wrapped cleanly to handle CommonJS constraints
 async function bootstrap() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

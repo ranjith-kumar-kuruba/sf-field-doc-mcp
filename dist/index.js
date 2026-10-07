@@ -32,28 +32,24 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
 const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
-const ollama_1 = __importDefault(require("ollama")); // Native official package compiles perfectly 
 const fs = __importStar(require("fs"));
-// Initialize the MCP Server
-const server = new index_js_1.Server({ name: "sf-field-doc-mcp", version: "2.0.0" }, { capabilities: { tools: {} } });
+// Initialize a lightweight MCP Server
+const server = new index_js_1.Server({ name: "sf-field-doc-mcp", version: "1.0.0" }, { capabilities: { tools: {} } });
 // Register the tool definitions
 server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => ({
     tools: [
         {
             name: "generate_proposal",
-            description: "Uses a completely local NLP model to read a Salesforce field and draft an intelligent description and help text for review.",
+            description: "Reads a single Salesforce .field-meta.xml file and shows a draft description and help text for review.",
             inputSchema: {
                 type: "object",
                 properties: {
                     filePath: { type: "string", description: "Absolute path to the field xml file" },
-                    businessPurpose: { type: "string", description: "The core business purpose or loose requirement notes" }
+                    businessPurpose: { type: "string", description: "Why this field exists / what it handles" }
                 },
                 required: ["filePath", "businessPurpose"]
             }
@@ -92,43 +88,18 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
             if (!fs.existsSync(filePath))
                 return { isError: true, content: [{ type: "text", text: `File not found.` }] };
             const xml = fs.readFileSync(filePath, "utf-8");
+            // Clean parsing strategy avoiding syntax token chaining breaks
             const labelMatch = xml.match(/<label>([\s\(\S\)]*?)<\/label>/);
-            const label = labelMatch ? labelMatch[1].trim() : "this field";
+            const label = labelMatch && labelMatch[1] ? labelMatch[1].trim() : "this field";
             const typeMatch = xml.match(/<type>([\s\(\S\)]*?)<\/type>/);
-            const type = typeMatch ? typeMatch[1].trim() : "Field";
-            // Formulate a strict structural NLP prompt for local execution
-            const nlpPrompt = `
-        You are a Salesforce System Architect. Generate a professional, clean documentation layout for a custom field based on these details:
-        Field Label: ${label}
-        Field Type: ${type}
-        Business Context: ${businessPurpose}
-
-        Respond ONLY with a valid JSON object containing exactly two keys: "description" and "helpText". Do not include any markdown styling, conversational text, or backticks.
-        
-        Constraints:
-        - "description": Technical summary of what data this field stores and why for auditors (Max 1000 characters).
-        - "helpText": Action-oriented guidance helping users fill out the field in the Salesforce UI (Max 255 characters).
-      `;
-            // Call the local model directly using the official client syntax
-            const response = await ollama_1.default.chat({
-                model: "phi3:mini",
-                messages: [{ role: "user", content: nlpPrompt }],
-                options: { temperature: 0.3 }
-            });
-            const responseText = response.message.content;
-            // Clean up any rogue structural formatting context around the JSON block
-            const cleanJsonString = responseText.substring(responseText.indexOf("{"), responseText.lastIndexOf("}") + 1);
-            const parsedNlp = JSON.parse(cleanJsonString);
+            const type = typeMatch && typeMatch[1] ? typeMatch[1].trim() : "Field";
+            // Algorithmic processing matching Salesforce structural bounds
+            const proposedDesc = `Type: ${type}. Purpose: ${businessPurpose}`.substring(0, 990);
+            const proposedHelp = `Enter the applicable data for ${label} (${type}).`.substring(0, 245);
             return {
                 content: [{
                         type: "text",
-                        text: JSON.stringify({
-                            label,
-                            type,
-                            proposedDesc: parsedNlp.description,
-                            proposedHelp: parsedNlp.helpText,
-                            filePath
-                        }, null, 2)
+                        text: JSON.stringify({ label, type, proposedDesc, proposedHelp, filePath }, null, 2)
                     }]
             };
         }
@@ -140,18 +111,18 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
             if (input.updateHelpText)
                 xml = upsertTag(xml, "inlineHelpText", input.inlineHelpText);
             fs.writeFileSync(input.filePath, xml, "utf-8");
-            return { content: [{ type: "text", text: "Successfully saved local NLP documentation updates!" }] };
+            return { content: [{ type: "text", text: "Successfully saved choices directly to the local XML file!" }] };
         }
         throw new Error("Tool not found");
     }
     catch (err) {
-        return { isError: true, content: [{ type: "text", text: `Error processing local NLP: ${err.message}` }] };
+        return { isError: true, content: [{ type: "text", text: `Error: ${err.message}` }] };
     }
 });
-// Bootstrapping function
+// Bootstrapping function wrapped cleanly to handle CommonJS constraints
 async function bootstrap() {
     const transport = new stdio_js_1.StdioServerTransport();
     await server.connect(transport);
-    console.error("Local NLP Step Documenter running.");
+    console.error("Simple Step Documenter running.");
 }
 bootstrap().catch(err => console.error("Start error:", err));
