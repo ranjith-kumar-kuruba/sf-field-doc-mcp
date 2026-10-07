@@ -6,8 +6,8 @@
   "bin": {
     "sf-field-doc-mcp": "dist/index.js"
   },
-  "scripts": {
-    "build": "tsc",
+ "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
